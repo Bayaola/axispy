@@ -1,4 +1,7 @@
 # axispy
+
+![AxisPy Logo](editor/ui/assets/images/logo.png)
+
 AxisPy Game Engine is a Python-based 2D game engine designed for developers who are passionate about both Python and game development in AI era.
 
 Built on top of Pygame, AxisPy aims to provide a structured and intuitive development experience inspired by modern engines, while staying fully within the Python ecosystem.
