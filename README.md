@@ -1,6 +1,8 @@
 # axispy
 
-![AxisPy Logo](editor/ui/assets/images/logo.png)
+<p align="center">
+  <img src="editor/ui/assets/images/logo.png" alt="AxisPy Logo">
+</p>
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
 ![Pygame](https://img.shields.io/badge/Pygame-2.6.1%2B-green)
