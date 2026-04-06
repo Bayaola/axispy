@@ -2,6 +2,23 @@
 
 ![AxisPy Logo](editor/ui/assets/images/logo.png)
 
+![Python](https://img.shields.io/badge/Python-3.8%2B-blue)
+![Pygame](https://img.shields.io/badge/Pygame-2.6.1%2B-green)
+![PyQt6](https://img.shields.io/badge/PyQt6-6.6.0%2B-green)
+![PyQt6-QScintilla](https://img.shields.io/badge/PyQt6--QScintilla-2.14.1%2B-green)
+![pytest](https://img.shields.io/badge/pytest-8.0.0%2B-red)
+![Sphinx](https://img.shields.io/badge/Sphinx-9.1.0%2B-orange)
+![sphinx-rtd-theme](https://img.shields.io/badge/sphinx--rtd--theme-3.1.0%2B-orange)
+![PyInstaller](https://img.shields.io/badge/PyInstaller-6.19.0%2B-blue)
+![pygbag](https://img.shields.io/badge/pygbag-0.9.3%2B-purple)
+![Pillow](https://img.shields.io/badge/Pillow-12.1.1%2B-blue)
+![websockets](https://img.shields.io/badge/websockets-16.0%2B-green)
+![pywebview](https://img.shields.io/badge/pywebview-6.1%2B-green)
+![aiortc](https://img.shields.io/badge/aiortc-1.14.0%2B-green)
+![buildozer](https://img.shields.io/badge/buildozer-1.5.0%2B-blue)
+![qtawesome](https://img.shields.io/badge/qtawesome-1.4.1%2B-green)
+![License](https://img.shields.io/badge/License-MIT-yellow)
+
 AxisPy Game Engine is a Python-based 2D game engine designed for developers who are passionate about both Python and game development in AI era.
 
 Built on top of Pygame, AxisPy aims to provide a structured and intuitive development experience inspired by modern engines, while staying fully within the Python ecosystem.
