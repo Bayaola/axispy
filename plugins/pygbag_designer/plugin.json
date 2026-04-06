@@ -1,0 +1,15 @@
+{
+  "name": "Pygbag Designer",
+  "version": "1.0.0",
+  "module": "pygbag_designer",
+  "engine_api_min": "1.0.0",
+  "engine_api_max": "9999.0.0",
+  "permissions": [
+    "ui:extend",
+    "project:read",
+    "project:write",
+    "filesystem:read",
+    "filesystem:write"
+  ],
+  "enabled": true
+}
