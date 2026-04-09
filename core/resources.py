@@ -29,18 +29,30 @@ class ResourceManager:
             cls.prebuild_sprite_atlas()
 
     @classmethod
+    def portable_path(cls, path: str) -> str:
+        """Normalize a path to always use forward slashes for cross-platform storage."""
+        if not path:
+            return path
+        return os.path.normpath(path).replace("\\", "/")
+
+    @classmethod
+    def to_os_path(cls, path: str) -> str:
+        """Convert a stored portable path (forward slashes) to native OS separators."""
+        if not path:
+            return path
+        return os.path.normpath(path.replace("/", os.sep).replace("\\", os.sep))
+
+    @classmethod
     def resolve_path(cls, path: str) -> str:
-        # Normalize path separators
-        path = path.replace("\\", os.sep).replace("/", os.sep)
-        path = os.path.normpath(path)
+        # Normalize path separators to OS-native
+        path = cls.to_os_path(path)
         
         if os.path.isabs(path):
             return path
         
         # Try relative to base path
         if cls._base_path:
-            full_path = os.path.join(cls._base_path, path)
-            full_path = os.path.normpath(full_path)
+            full_path = os.path.normpath(os.path.join(cls._base_path, path))
             if os.path.exists(full_path):
                 return full_path
                 

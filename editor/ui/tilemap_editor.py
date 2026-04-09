@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import (
 )
 
 from core.components import TilemapComponent, TileLayer, Tileset
+from core.resources import ResourceManager
 import qtawesome as qta
 from editor.ui.engine_settings import theme_icon_color
 
@@ -308,7 +309,8 @@ class TilemapComponentUI(QWidget):
         if self.main_window.project_path:
             try:
                 rel = os.path.relpath(file_path, self.main_window.project_path)
-                file_path = rel
+                if not rel.startswith(".."):
+                    file_path = ResourceManager.portable_path(rel)
             except Exception:
                 pass
         self.tileset_path.setText(file_path)
@@ -318,7 +320,7 @@ class TilemapComponentUI(QWidget):
         if not tileset or not tileset.image_path:
             self.preview.set_tileset(None, None)
             return
-        abs_path = tileset.image_path
+        abs_path = ResourceManager.to_os_path(tileset.image_path)
         if self.main_window and self.main_window.project_path and not os.path.isabs(abs_path):
             abs_path = os.path.normpath(os.path.join(self.main_window.project_path, abs_path))
         if not os.path.exists(abs_path):
@@ -860,7 +862,8 @@ class TilemapEditorDock(QDockWidget):
         if self.main_window.project_path:
             try:
                 rel = os.path.relpath(file_path, self.main_window.project_path)
-                file_path = rel
+                if not rel.startswith(".."):
+                    file_path = ResourceManager.portable_path(rel)
             except Exception:
                 pass
         self.tileset_path.setText(file_path)

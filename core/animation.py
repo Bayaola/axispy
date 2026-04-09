@@ -59,7 +59,7 @@ class AnimationClip:
         }
         if self.type == "spritesheet":
             data.update({
-                "sheet_path": self.sheet_path,
+                "sheet_path": ResourceManager.portable_path(self.sheet_path) if self.sheet_path else self.sheet_path,
                 "frame_width": self.frame_width,
                 "frame_height": self.frame_height,
                 "margin": self.margin,
@@ -69,7 +69,7 @@ class AnimationClip:
             })
         elif self.type == "images":
             data.update({
-                "image_paths": self.image_paths
+                "image_paths": [ResourceManager.portable_path(p) if p else p for p in self.image_paths]
             })
         return data
 
@@ -233,7 +233,7 @@ class AnimationController:
             "nodes": [
                 {
                     "name": node.name,
-                    "clip_path": node.clip_path,
+                    "clip_path": ResourceManager.portable_path(node.clip_path) if node.clip_path else node.clip_path,
                     "position": node.position
                 }
                 for node in self.nodes.values()
