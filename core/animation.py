@@ -179,12 +179,14 @@ class AnimationController:
         return None
 
     def _normalize(self):
+        idle_migrated = False
         if self.ROOT_NODE_NAME not in self.nodes:
             if "Idle" in self.nodes:
                 node = self.nodes.pop("Idle")
                 node.name = self.ROOT_NODE_NAME
                 node.clip_path = ""
                 self.nodes[self.ROOT_NODE_NAME] = node
+                idle_migrated = True
             else:
                 self.nodes[self.ROOT_NODE_NAME] = AnimationNode(self.ROOT_NODE_NAME, "", (80, 120))
         self.nodes[self.ROOT_NODE_NAME].clip_path = ""
@@ -194,10 +196,11 @@ class AnimationController:
         for transition in self.transitions:
             from_node = transition.from_node
             to_node = transition.to_node
-            if from_node == "Idle":
-                from_node = self.ROOT_NODE_NAME
-            if to_node == "Idle":
-                to_node = self.ROOT_NODE_NAME
+            if idle_migrated:
+                if from_node == "Idle":
+                    from_node = self.ROOT_NODE_NAME
+                if to_node == "Idle":
+                    to_node = self.ROOT_NODE_NAME
             if from_node not in valid_names or to_node not in valid_names:
                 continue
             if to_node == self.ROOT_NODE_NAME:
@@ -255,11 +258,17 @@ class AnimationController:
         ctrl.transitions = []
         ctrl.parameters = data.get("parameters", {})
 
+        # Only migrate legacy "Idle" → "Root" when no explicit Root node exists
+        has_explicit_root = any(
+            nd.get("name") == ctrl.ROOT_NODE_NAME
+            for nd in data.get("nodes", [])
+        )
+
         for node_data in data.get("nodes", []):
             node_name = node_data.get("name")
             if not node_name:
                 continue
-            if node_name == "Idle":
+            if not has_explicit_root and node_name == "Idle":
                 node_name = ctrl.ROOT_NODE_NAME
             if node_name in ctrl.nodes:
                 continue
@@ -275,10 +284,11 @@ class AnimationController:
         for trans_data in data.get("transitions", []):
             from_node = trans_data.get("from")
             to_node = trans_data.get("to")
-            if from_node == "Idle":
-                from_node = ctrl.ROOT_NODE_NAME
-            if to_node == "Idle":
-                to_node = ctrl.ROOT_NODE_NAME
+            if not has_explicit_root:
+                if from_node == "Idle":
+                    from_node = ctrl.ROOT_NODE_NAME
+                if to_node == "Idle":
+                    to_node = ctrl.ROOT_NODE_NAME
             ctrl.add_transition(
                 from_node,
                 to_node,
