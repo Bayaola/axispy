@@ -1,6 +1,7 @@
 import json
 import os
 import platform
+from core.resources import ResourceManager
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QPushButton, 
                              QLabel, QLineEdit, QSpinBox, QFormLayout, QMessageBox, QTabWidget, QWidget, QColorDialog, QComboBox, QCheckBox, QFileDialog, QListWidget, QInputDialog, QTableWidget, QTableWidgetItem, QGroupBox, QTextEdit, QScrollArea, QHeaderView, QAbstractItemView)
 from PyQt6.QtGui import QColor, QKeySequence
@@ -932,7 +933,7 @@ class ProjectSettingsDialog(QDialog):
                     normalized = rel
             except ValueError:
                 pass
-        self.game_icon_edit.setText(normalized)
+        self.game_icon_edit.setText(ResourceManager.portable_path(normalized))
 
     def choose_entry_scene(self):
         start_dir = self.project_path if self.project_path else os.getcwd()
@@ -954,7 +955,7 @@ class ProjectSettingsDialog(QDialog):
                     normalized = rel
             except ValueError:
                 pass
-        self.entry_scene_edit.setText(normalized)
+        self.entry_scene_edit.setText(ResourceManager.portable_path(normalized))
         
     def save_config(self):
         if not self.config_path:

@@ -1,6 +1,7 @@
 import os
 import json
 import hashlib
+from core.resources import ResourceManager
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QLabel, QListWidget, QFileDialog, QMessageBox, QListWidgetItem, QInputDialog, QLineEdit, QAbstractItemView)
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QUrl
@@ -285,7 +286,7 @@ class ProjectHub(QWidget):
     def _resolve_game_icon_path(self, project_path, game_icon_value):
         if not game_icon_value:
             return ""
-        value = os.path.normpath(str(game_icon_value))
+        value = ResourceManager.to_os_path(str(game_icon_value))
         if os.path.isabs(value):
             return value if os.path.exists(value) else ""
         resolved = os.path.normpath(os.path.join(project_path, value))

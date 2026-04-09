@@ -162,10 +162,11 @@ class RuntimePlayer:
                     self.window_title = str(game_name)
                 icon_value = str(config.get("game_icon", "")).strip()
                 if icon_value:
-                    if os.path.isabs(icon_value):
-                        self.game_icon_path = os.path.normpath(icon_value)
+                    native_icon = ResourceManager.to_os_path(icon_value)
+                    if os.path.isabs(native_icon):
+                        self.game_icon_path = native_icon
                     else:
-                        self.game_icon_path = os.path.normpath(os.path.join(self.project_dir, icon_value))
+                        self.game_icon_path = os.path.normpath(os.path.join(self.project_dir, native_icon))
                 self.bg_color = tuple(config.get("background_color", [0, 0, 0]))
                 # P11-8: Load input action mappings from config
                 if "input_actions" in config:

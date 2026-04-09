@@ -1262,9 +1262,9 @@ class {class_name}(ScriptComponent):
                     base_dir = os.getcwd()
                     if self.parent() and hasattr(self.parent(), 'project_path') and self.parent().project_path:
                         base_dir = self.parent().project_path
-                    final_path = os.path.relpath(file_path, base_dir)
+                    final_path = ResourceManager.portable_path(os.path.relpath(file_path, base_dir))
                 except Exception:
-                    final_path = file_path
+                    final_path = ResourceManager.portable_path(file_path)
 
                 for entity in self.current_entities:
                     if ScriptComponent not in entity.components:
@@ -2153,7 +2153,7 @@ class {first.class_name}:
                         if parent and hasattr(parent, 'project_path') and parent.project_path:
                             rel_path = os.path.relpath(file_path, parent.project_path)
                             if not rel_path.startswith('..'):
-                                file_path = rel_path
+                                file_path = ResourceManager.portable_path(rel_path)
                     except:
                         pass
                     
@@ -2220,7 +2220,7 @@ class {class_name}:
                         if parent and hasattr(parent, 'project_path') and parent.project_path:
                             rel_path = os.path.relpath(file_path, parent.project_path)
                             if not rel_path.startswith('..'):
-                                file_path = rel_path
+                                file_path = ResourceManager.portable_path(rel_path)
                     except:
                         pass
                     
