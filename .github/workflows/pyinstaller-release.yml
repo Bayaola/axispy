@@ -20,9 +20,7 @@ jobs:
           - os: ubuntu-22.04
             artifact-name: axispy-linux
           - os: macos-latest
-            artifact-name: axispy-macos-arm64
-          - os: macos-13
-            artifact-name: axispy-macos-x86_64
+            artifact-name: axispy-macos
     runs-on: ${{ matrix.os }}
 
     steps:

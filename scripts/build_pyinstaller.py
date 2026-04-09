@@ -109,6 +109,7 @@ def _collectable_packages() -> list[str]:
         "webview",
         "aiortc",
         "buildozer",
+        "qtawesome",
     ]
     available: list[str] = []
     for name in candidates:
