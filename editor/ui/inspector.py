@@ -27,6 +27,7 @@ from core.serializer import SceneSerializer
 from core.animation import AnimationController
 from editor.undo_manager import PropertyChangeCommand, EntityPropertyChangeCommand
 from core.vector import Vector2
+from core.resources import ResourceManager
 import os
 import qtawesome as qta
 from editor.ui.engine_settings import theme_icon_color
@@ -274,6 +275,7 @@ class AnimationClipEditorDialog(QDialog):
         """Resolve a potentially relative path against the project directory."""
         if not path:
             return ""
+        path = ResourceManager.to_os_path(path)
         if os.path.isabs(path):
             return path
         return os.path.normpath(os.path.join(self.project_dir, path))
@@ -359,10 +361,10 @@ class AnimationClipEditorDialog(QDialog):
         try:
             rel = os.path.relpath(abs_path, abs_project)
             if not rel.startswith(".."):
-                return rel
+                return ResourceManager.portable_path(rel)
         except Exception:
             pass
-        return abs_path
+        return ResourceManager.portable_path(abs_path)
 
     def _validate_and_build_result(self):
         clip_name = self.clip_name_edit.text().strip()
@@ -1260,9 +1262,9 @@ class {class_name}(ScriptComponent):
                     base_dir = os.getcwd()
                     if self.parent() and hasattr(self.parent(), 'project_path') and self.parent().project_path:
                         base_dir = self.parent().project_path
-                    final_path = os.path.relpath(file_path, base_dir)
+                    final_path = ResourceManager.portable_path(os.path.relpath(file_path, base_dir))
                 except Exception:
-                    final_path = file_path
+                    final_path = ResourceManager.portable_path(file_path)
 
                 for entity in self.current_entities:
                     if ScriptComponent not in entity.components:
@@ -2151,7 +2153,7 @@ class {first.class_name}:
                         if parent and hasattr(parent, 'project_path') and parent.project_path:
                             rel_path = os.path.relpath(file_path, parent.project_path)
                             if not rel_path.startswith('..'):
-                                file_path = rel_path
+                                file_path = ResourceManager.portable_path(rel_path)
                     except:
                         pass
                     
@@ -2218,7 +2220,7 @@ class {class_name}:
                         if parent and hasattr(parent, 'project_path') and parent.project_path:
                             rel_path = os.path.relpath(file_path, parent.project_path)
                             if not rel_path.startswith('..'):
-                                file_path = rel_path
+                                file_path = ResourceManager.portable_path(rel_path)
                     except:
                         pass
                     
@@ -3874,10 +3876,10 @@ class {class_name}:
         try:
             rel_path = os.path.relpath(path, self._project_base_dir())
             if not rel_path.startswith(".."):
-                return rel_path
+                return ResourceManager.portable_path(rel_path)
         except Exception:
             pass
-        return path
+        return ResourceManager.portable_path(path)
 
     def _clone_clip(self, clip):
         cloned = dict(clip)

@@ -12,6 +12,13 @@ import sys
 from core.logger import get_logger
 
 
+def _to_native_path(path: str) -> str:
+    """Convert a stored portable path to native OS separators."""
+    if not path:
+        return path
+    return os.path.normpath(path.replace("\\", "/"))
+
+
 @dataclass
 class BuildContext:
     project_path: str
@@ -499,10 +506,11 @@ class Exporter:
             icon_value = str(data.get("game_icon", "")).strip()
             if not icon_value:
                 return ""
-            if os.path.isabs(icon_value):
-                icon_path = os.path.normpath(icon_value)
+            native_icon = _to_native_path(icon_value)
+            if os.path.isabs(native_icon):
+                icon_path = native_icon
             else:
-                icon_path = os.path.normpath(os.path.join(project_path, icon_value))
+                icon_path = os.path.normpath(os.path.join(project_path, native_icon))
             if not os.path.exists(icon_path):
                 return ""
             return icon_path
@@ -926,7 +934,7 @@ class WebExporter(Exporter):
             entry_scene = str(data.get("entry_scene", "")).strip()
             if not entry_scene:
                 return ""
-            return os.path.normpath(entry_scene).replace("\\", "/")
+            return _to_native_path(entry_scene).replace("\\", "/")
         except Exception:
             return ""
 
@@ -1225,7 +1233,7 @@ class DesktopExporter(Exporter):
             for filename in sorted(files):
                 if filename.lower().endswith(".scn"):
                     scene_full = os.path.join(root, filename)
-                    return os.path.relpath(scene_full, context.project_path)
+                    return os.path.relpath(scene_full, context.project_path).replace("\\", "/")
         return ""
 
     def _read_entry_scene(self, project_path: str):
@@ -1238,7 +1246,7 @@ class DesktopExporter(Exporter):
             entry_scene = str(data.get("entry_scene", "")).strip()
             if not entry_scene:
                 return ""
-            return os.path.normpath(entry_scene)
+            return _to_native_path(entry_scene)
         except Exception:
             return ""
 
@@ -1523,7 +1531,7 @@ class MobileExporter(Exporter):
             for filename in sorted(files):
                 if filename.lower().endswith(".scn"):
                     scene_full = os.path.join(root, filename)
-                    return os.path.relpath(scene_full, context.project_path)
+                    return os.path.relpath(scene_full, context.project_path).replace("\\", "/")
         return ""
 
     def _read_entry_scene(self, project_path: str):
@@ -1533,7 +1541,7 @@ class MobileExporter(Exporter):
         try:
             with open(config_path, "r", encoding="utf-8") as f:
                 data = json.load(f)
-            return os.path.normpath(str(data.get("entry_scene", "")).strip()) if data.get("entry_scene") else ""
+            return _to_native_path(str(data.get("entry_scene", "")).strip()) if data.get("entry_scene") else ""
         except Exception:
             return ""
 
@@ -1570,9 +1578,10 @@ class MobileExporter(Exporter):
             icon = str(data.get("game_icon", "")).strip()
             if not icon:
                 return ""
-            if os.path.isabs(icon):
-                return icon
-            return os.path.join(project_path, icon)
+            native_icon = _to_native_path(icon)
+            if os.path.isabs(native_icon):
+                return native_icon
+            return os.path.normpath(os.path.join(project_path, native_icon))
         except Exception:
             return ""
 
@@ -1965,7 +1974,7 @@ class ServerExporter(Exporter):
             for filename in sorted(files):
                 if filename.lower().endswith(".scn"):
                     scene_full = os.path.join(root, filename)
-                    return os.path.relpath(scene_full, context.project_path)
+                    return os.path.relpath(scene_full, context.project_path).replace("\\", "/")
         return ""
 
     def _read_entry_scene(self, project_path: str):
@@ -1978,7 +1987,7 @@ class ServerExporter(Exporter):
             entry_scene = str(data.get("entry_scene", "")).strip()
             if not entry_scene:
                 return ""
-            return os.path.normpath(entry_scene)
+            return _to_native_path(entry_scene)
         except Exception:
             return ""
 

@@ -11,6 +11,7 @@ import os
 import json
 from core.animation import AnimationController, AnimationClip, AnimationNode, AnimationTransition
 from core.serializer import SceneSerializer
+from core.resources import ResourceManager
 import qtawesome as qta
 from editor.ui.engine_settings import theme_icon_color
 
@@ -352,16 +353,16 @@ class ControllerEditorWidget(QWidget):
         self.selected_node.text_item.setPlainText(new_name)
 
     def _to_project_relative(self, path):
-        """Convert an absolute path to a project-relative path if possible."""
+        """Convert an absolute path to a project-relative portable path (forward slashes)."""
         abs_project = os.path.abspath(self.project_dir)
         abs_path = os.path.abspath(path)
         try:
             rel = os.path.relpath(abs_path, abs_project)
             if not rel.startswith(".."):
-                return rel
+                return ResourceManager.portable_path(rel)
         except ValueError:
             pass
-        return abs_path
+        return ResourceManager.portable_path(abs_path)
 
     def browse_clip(self):
         if not self.selected_node or not self.controller:
@@ -390,6 +391,7 @@ class ControllerEditorWidget(QWidget):
     def resolve_clip_path(self, clip_path: str):
         if not clip_path:
             return ""
+        clip_path = ResourceManager.to_os_path(clip_path)
         if os.path.isabs(clip_path) and os.path.exists(clip_path):
             return clip_path
         candidates = []
@@ -775,16 +777,16 @@ class ClipEditorWidget(QWidget):
             QMessageBox.critical(self, "Error", f"Failed to load clip: {e}")
 
     def _to_project_relative(self, path):
-        """Convert an absolute path to a project-relative path if possible."""
+        """Convert an absolute path to a project-relative portable path (forward slashes)."""
         abs_project = os.path.abspath(self.project_dir)
         abs_path = os.path.abspath(path)
         try:
             rel = os.path.relpath(abs_path, abs_project)
             if not rel.startswith(".."):
-                return rel
+                return ResourceManager.portable_path(rel)
         except ValueError:
             pass
-        return abs_path
+        return ResourceManager.portable_path(abs_path)
 
     def browse_sheet(self):
         path, _ = QFileDialog.getOpenFileName(self, "Select Spritesheet", self.project_dir, "Images (*.png *.jpg *.jpeg *.bmp)")
@@ -857,7 +859,8 @@ class ClipEditorWidget(QWidget):
             return
             
         if self.clip.type == "spritesheet" and self.clip.sheet_path:
-            abs_path = self.clip.sheet_path if os.path.isabs(self.clip.sheet_path) else os.path.join(self.project_dir, self.clip.sheet_path)
+            os_sheet = ResourceManager.to_os_path(self.clip.sheet_path)
+            abs_path = os_sheet if os.path.isabs(os_sheet) else os.path.join(self.project_dir, os_sheet)
             if os.path.exists(abs_path):
                 pixmap = QPixmap(abs_path)
                 if not pixmap.isNull():
@@ -881,7 +884,8 @@ class ClipEditorWidget(QWidget):
                         
         elif self.clip.type == "images":
             for p in self.clip.image_paths:
-                abs_p = p if os.path.isabs(p) else os.path.join(self.project_dir, p)
+                os_p = ResourceManager.to_os_path(p)
+                abs_p = os_p if os.path.isabs(os_p) else os.path.join(self.project_dir, os_p)
                 if os.path.exists(abs_p):
                     px = QPixmap(abs_p)
                     if not px.isNull():

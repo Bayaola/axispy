@@ -4,6 +4,7 @@ from PyQt6.QtCore import Qt, QSize, QTimer
 import pygame
 import os
 import json
+from core.resources import ResourceManager
 
 class PreviewPanel(QWidget):
     def __init__(self, parent=None):
@@ -260,7 +261,7 @@ class AnimationClipPreview(QWidget):
     def _resolve_path(self, base_dir, asset_path):
         if not asset_path:
             return ""
-        normalized = os.path.normpath(asset_path)
+        normalized = ResourceManager.to_os_path(asset_path)
         if os.path.isabs(normalized) and os.path.exists(normalized):
             return normalized
         candidate = os.path.normpath(os.path.join(base_dir, normalized))

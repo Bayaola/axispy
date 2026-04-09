@@ -809,17 +809,18 @@ class MainWindow(QMainWindow):
                 scene_value = rel_scene
         except ValueError:
             scene_value = abs_scene
-        config["last_opened_scene"] = scene_value
+        config["last_opened_scene"] = ResourceManager.portable_path(scene_value)
         self._write_project_config(config)
 
     def _resolve_scene_path(self, scene_value):
         if not scene_value:
             return ""
-        if os.path.isabs(scene_value):
-            return os.path.normpath(scene_value)
+        native_value = ResourceManager.to_os_path(scene_value)
+        if os.path.isabs(native_value):
+            return native_value
         if not self.project_path:
             return ""
-        return os.path.normpath(os.path.join(self.project_path, scene_value))
+        return os.path.normpath(os.path.join(self.project_path, native_value))
 
     def open_project_settings(self):
         if not self.project_path:

@@ -5,6 +5,7 @@ from core.ecs import Entity, World
 from core.animation import AnimationController, AnimationClip
 import os
 from core.logger import get_logger
+from core.resources import ResourceManager
 
 _serializer_logger = get_logger("serializer")
 from core.components import (
@@ -173,7 +174,7 @@ class SceneSerializer:
     @staticmethod
     def _animator_to_data(component: AnimatorComponent) -> dict:
         return {
-            "controller_path": component.controller_path,
+            "controller_path": ResourceManager.portable_path(component.controller_path) if component.controller_path else component.controller_path,
             "play_on_start": component.play_on_start,
             "speed": component.speed
         }
@@ -398,11 +399,12 @@ class SceneSerializer:
 
     @staticmethod
     def _sprite_to_data(component: SpriteRenderer) -> dict:
+        raw_path = getattr(component, "image_path", None)
         return {
             "color": component.color,
             "width": component.width,
             "height": component.height,
-            "image_path": getattr(component, "image_path", None)
+            "image_path": ResourceManager.portable_path(raw_path) if raw_path else raw_path
         }
 
     @staticmethod
@@ -417,7 +419,7 @@ class SceneSerializer:
     @staticmethod
     def _script_to_data(component: ScriptComponent) -> dict:
         return {
-            "script_path": component.script_path,
+            "script_path": ResourceManager.portable_path(component.script_path) if component.script_path else component.script_path,
             "class_name": component.class_name
         }
 
@@ -431,7 +433,7 @@ class SceneSerializer:
     @staticmethod
     def _sound_to_data(component: SoundComponent) -> dict:
         return {
-            "file_path": component.file_path,
+            "file_path": ResourceManager.portable_path(component.file_path) if component.file_path else component.file_path,
             "volume": component.volume,
             "loop": component.loop,
             "is_music": component.is_music,
@@ -645,7 +647,7 @@ class SceneSerializer:
             "text": component.text,
             "font_size": component.font_size,
             "color": component.color,
-            "font_path": component.font_path
+            "font_path": ResourceManager.portable_path(component.font_path) if component.font_path else component.font_path
         }
 
     @staticmethod
@@ -772,7 +774,7 @@ class SceneSerializer:
     @staticmethod
     def _ui_image_to_data(component: UIImageRenderer) -> dict:
         return {
-            "image_path": component.image_path,
+            "image_path": ResourceManager.portable_path(component.image_path) if component.image_path else component.image_path,
             "color": component.color,
             "width": component.width,
             "height": component.height
@@ -858,7 +860,7 @@ class SceneSerializer:
             "cell_width": int(getattr(component, "cell_width", tileset.tile_width)),
             "cell_height": int(getattr(component, "cell_height", tileset.tile_height)),
             "tileset": {
-                "image_path": str(getattr(tileset, "image_path", "") or ""),
+                "image_path": ResourceManager.portable_path(str(getattr(tileset, "image_path", "") or "")),
                 "tile_width": int(getattr(tileset, "tile_width", 32)),
                 "tile_height": int(getattr(tileset, "tile_height", 32)),
                 "spacing": int(getattr(tileset, "spacing", 0)),
