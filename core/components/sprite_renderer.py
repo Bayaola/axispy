@@ -22,6 +22,7 @@ class SpriteRenderer(Component):
         self._local_width = width
         self._local_height = height
         self.image_path = image_path
+        self.image = None
         
         if self.image_path:
             self.load_image(self.image_path)
