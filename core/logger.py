@@ -55,11 +55,11 @@ def _default_sink(record: LogRecord):
     if record.data:
         msg = f"[{record.timestamp}] [{record.level}] [{record.subsystem}] {record.message} | {record.data}"
         print(msg)
+    else:
+        msg = f"[{record.timestamp}] [{record.level}] [{record.subsystem}] {record.message}"
+        print(msg)
+    if sys.stdout is not None:
         sys.stdout.flush()
-        return
-    msg = f"[{record.timestamp}] [{record.level}] [{record.subsystem}] {record.message}"
-    print(msg)
-    sys.stdout.flush()
 
 
 def add_sink(sink: Callable[[LogRecord], None]):
