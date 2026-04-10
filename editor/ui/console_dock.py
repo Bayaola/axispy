@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QDockWidget, QPlainTextEdit, QVBoxLayout, QHBoxLayout, 
                              QCheckBox, QLabel, QWidget, QFrame, QScrollArea, QApplication)
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QThread
 from PyQt6.QtGui import QTextCharFormat, QColor, QFont, QPalette
 import sys
 import subprocess
@@ -10,7 +10,8 @@ from core.logger import get_logger, add_sink, remove_sink
 
 class ConsoleDock(QDockWidget):
     """Console dock with filtering capabilities for engine logs, stdout/stderr, and player process output."""
-    
+    _log_signal = pyqtSignal(str, str, str)
+
     def __init__(self, parent=None):
         super().__init__("Console", parent)
         self.setObjectName("ConsoleDock")
@@ -51,6 +52,7 @@ class ConsoleDock(QDockWidget):
         self._player_timer.setInterval(100)  # Read every 100ms
         
         self._setup_ui()
+        self._log_signal.connect(self._add_log_entry)
         self._setup_streams()
         
     def _is_dark_theme(self) -> bool:
@@ -183,8 +185,15 @@ class ConsoleDock(QDockWidget):
         self._filters[filter_type] = not self._filters[filter_type]
         self._refresh_display()
         
+    def _add_log_entry_threadsafe(self, source: str, level: str, text: str):
+        """Route log entries to the main thread via signal if called from a background thread."""
+        if QThread.currentThread() is not self.thread():
+            self._log_signal.emit(source, level, text)
+            return
+        self._add_log_entry(source, level, text)
+
     def _add_log_entry(self, source: str, level: str, text: str):
-        """Add a log entry with metadata."""
+        """Add a log entry with metadata. Must be called on the main thread."""
         entry = {
             'source': source,
             'level': level,
@@ -226,21 +235,21 @@ class ConsoleDock(QDockWidget):
     def write_stdout(self, text: str):
         """Write stdout text to console."""
         if text:
-            self._add_log_entry('python', 'STDOUT', text)
+            self._add_log_entry_threadsafe('python', 'STDOUT', text)
             
     def write_stderr(self, text: str):
         """Write stderr text to console."""
         if text:
-            self._add_log_entry('python', 'STDERR', text)
+            self._add_log_entry_threadsafe('python', 'STDERR', text)
             
     def _on_engine_log(self, record):
         """Handle engine log records."""
         data_suffix = f" | {record.data}" if record.data else ""
         formatted = f"[{record.level}] [{record.subsystem}] {record.message}{data_suffix}\n"
-        self._add_log_entry('engine', record.level, formatted)
+        self._add_log_entry_threadsafe('engine', record.level, formatted)
         
-        # Show error in status bar
-        if record.level_value >= 30:
+        # Show error in status bar (only safe from main thread)
+        if record.level_value >= 30 and QThread.currentThread() is self.thread():
             parent = self.parent()
             if parent and hasattr(parent, 'statusBar'):
                 parent.statusBar().showMessage(formatted.strip(), 8000)
@@ -337,4 +346,7 @@ class _ConsoleStream:
                 
     def flush(self):
         if self.original_stream and not isinstance(self.original_stream, _ConsoleStream):
-            self.original_stream.flush()
+            try:
+                self.original_stream.flush()
+            except (AttributeError, OSError):
+                pass
