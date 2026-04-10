@@ -1122,6 +1122,19 @@ class DesktopExporter(Exporter):
                 f"PyInstaller is not installed for interpreter '{sys.executable}'. "
                 "Install it with: pip install pyinstaller"
             )
+        # Ensure pygame is available in the host Python so --collect-all can find it
+        prefix = self._python_prefix_from_module_command(pyinstaller_cmd)
+        probe_env = self._tool_env()
+        if not self._probe_module_on_prefix(prefix, "pygame", probe_env):
+            self.logger.info("pygame not found in host Python, attempting install", prefix=prefix)
+            self._install_host_packages(prefix, ["pygame"])
+            if not self._probe_module_on_prefix(prefix, "pygame", probe_env):
+                self.logger.warning(
+                    "pygame could not be installed in the host Python. "
+                    "The built executable may fail to run. "
+                    "Install pygame manually: pip install pygame"
+                )
+
         launcher_path = context.metadata.get("desktop_launcher_path")
         if not launcher_path or not os.path.exists(launcher_path):
             raise RuntimeError("Desktop launcher was not generated.")
@@ -2046,6 +2059,13 @@ class ServerExporter(Exporter):
                 f"PyInstaller is not installed for interpreter '{sys.executable}'. "
                 "Install it with: pip install pyinstaller"
             )
+        # Ensure pygame is available in the host Python so --collect-all can find it
+        prefix = self._python_prefix_from_module_command(pyinstaller_cmd)
+        probe_env = self._tool_env()
+        if not self._probe_module_on_prefix(prefix, "pygame", probe_env):
+            self.logger.info("pygame not found in host Python, attempting install", prefix=prefix)
+            self._install_host_packages(prefix, ["pygame"])
+
         launcher_path = context.metadata.get("server_launcher_path")
         if not launcher_path or not os.path.exists(launcher_path):
             raise RuntimeError("Server launcher was not generated.")
