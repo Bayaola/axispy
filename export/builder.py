@@ -1064,7 +1064,13 @@ class DesktopExporter(Exporter):
             "--hidden-import",
             "pygame",
             "--collect-all",
-            "pygame"
+            "pygame",
+            "--exclude-module",
+            "PyQt5",
+            "--exclude-module",
+            "PySide2",
+            "--exclude-module",
+            "PySide6",
         ]
         # Platform-specific PyInstaller args
         if self.target_os == "macos":

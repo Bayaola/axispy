@@ -157,6 +157,12 @@ def build(app_name: str, entrypoint: str, project_root: Path, icon: str | None =
         f"{project_root / 'plugins'}{path_sep}plugins",
         "--hidden-import",
         "PyQt6.Qsci",
+        "--exclude-module",
+        "PyQt5",
+        "--exclude-module",
+        "PySide2",
+        "--exclude-module",
+        "PySide6",
     ]
     for package_name in _collectable_packages():
         command.extend(["--collect-all", package_name])
