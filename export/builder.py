@@ -10,6 +10,7 @@ import shutil
 import platform
 import subprocess
 import sys
+import threading
 from core.logger import get_logger
 
 
@@ -42,6 +43,10 @@ def _resolve_project_asset(stored_path: str, project_path: str) -> str:
     return ""
 
 
+class ExportCancelled(Exception):
+    """Raised when the user cancels an in-progress export."""
+
+
 @dataclass
 class BuildContext:
     project_path: str
@@ -50,6 +55,7 @@ class BuildContext:
     build_mode: str = "release"
     logger: any = None
     metadata: dict = field(default_factory=dict)
+    cancelled: threading.Event = field(default_factory=threading.Event)
 
 
 class WebTemplatePart:
@@ -440,9 +446,13 @@ class BuildGraph:
     def _run_node(self, node_name: str, context: BuildContext, executed: set[str]):
         if node_name in executed:
             return
+        if context.cancelled.is_set():
+            raise ExportCancelled("Export cancelled by user")
         node = self.nodes[node_name]
         for dependency in node.dependencies:
             self._run_node(dependency, context, executed)
+        if context.cancelled.is_set():
+            raise ExportCancelled("Export cancelled by user")
         context.logger.info("Build step start", platform=context.platform, step=node.name)
         node.action(context)
         context.logger.info("Build step done", platform=context.platform, step=node.name)
@@ -456,6 +466,7 @@ class Exporter:
         self.build_mode = build_mode
         self.logger = get_logger(f"export.{self.platform}")
         self.graph = self._build_graph()
+        self.cancelled = threading.Event()
 
     def _build_context(self, project_path: str, output_path: str):
         normalized_output = os.path.abspath(os.path.normpath(output_path))
@@ -467,7 +478,8 @@ class Exporter:
             output_path=os.path.abspath(os.path.normpath(platform_output)),
             platform=self.platform,
             build_mode=self.build_mode,
-            logger=self.logger
+            logger=self.logger,
+            cancelled=self.cancelled
         )
 
     def _build_graph(self):
@@ -1499,7 +1511,7 @@ class MobileExporter(Exporter):
         ndk_path = android_cfg.get("ndk_path", "")
 
         # Build requirements (default engine dependencies always included)
-        requirements = "python3,kivy,pygame,websockets,pywebview,aiortc"
+        requirements = "python3,kivy,pygame==2.5.2,websockets,pywebview,aiortc"
         if python_deps:
             requirements += "," + python_deps
 
@@ -1736,6 +1748,9 @@ class MobileExporter(Exporter):
                 "libncursesw5-dev cmake libffi-dev libssl-dev"
             )
 
+        # Ensure cython is installed in the same environment as buildozer
+        self._ensure_buildozer_companions(buildozer_cmd)
+
         log_path = os.path.join(context.output_path, f"buildozer_{build_action}.log")
         self.logger.info(
             "Starting Buildozer",
@@ -1744,24 +1759,78 @@ class MobileExporter(Exporter):
             cwd=context.output_path
         )
 
-        result = subprocess.run(
+        build_env = self._tool_env()
+        # Ensure the Python prefix's bin dir and user scripts dir are on
+        # PATH so buildozer can find pip-installed CLI tools like cython.
+        extra_dirs = []
+        prefix = self._python_prefix_from_module_command(buildozer_cmd)
+        if prefix:
+            extra_dirs.append(os.path.dirname(os.path.abspath(prefix[0])))
+        user_bin = os.path.join(os.path.expanduser("~"), ".local", "bin")
+        if os.path.isdir(user_bin):
+            extra_dirs.append(user_bin)
+        current_path = build_env.get("PATH", "")
+        path_parts = current_path.split(os.pathsep)
+        for d in extra_dirs:
+            if d not in path_parts:
+                current_path = d + os.pathsep + current_path
+        build_env["PATH"] = current_path
+
+        _ansi_re = re.compile(r'\x1b\[[0-9;]*m')
+
+        proc = subprocess.Popen(
             [*buildozer_cmd, "android", build_action],
             cwd=context.output_path,
-            check=False,
-            capture_output=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            env=self._tool_env()
+            env=build_env,
         )
 
-        combined = ""
-        if result.stdout:
-            combined += result.stdout
-        if result.stderr:
+        # Feed automatic "yes" responses to accept Android SDK licenses,
+        # then close stdin so the process never blocks waiting for input.
+        try:
+            assert proc.stdin is not None
+            proc.stdin.write(("y\n") * 50)
+            proc.stdin.flush()
+            proc.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass
+
+        stdout_lines: list[str] = []
+        stderr_lines: list[str] = []
+
+        def _drain_stderr():
+            assert proc.stderr is not None
+            for line in proc.stderr:
+                stderr_lines.append(line)
+                stripped = _ansi_re.sub('', line).strip()
+                if stripped:
+                    self.logger.info(stripped)
+
+        stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+        stderr_thread.start()
+
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            stdout_lines.append(line)
+            stripped = _ansi_re.sub('', line).strip()
+            if stripped:
+                self.logger.info(stripped)
+
+        proc.wait()
+        stderr_thread.join(timeout=5)
+
+        combined = "".join(stdout_lines)
+        if stderr_lines:
             if combined:
                 combined += "\n"
-            combined += result.stderr
+            combined += "".join(stderr_lines)
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(combined)
+
+        result = proc
 
         if result.returncode != 0:
             tail_lines = [l for l in combined.splitlines() if l.strip()][-20:]
@@ -1797,6 +1866,31 @@ class MobileExporter(Exporter):
         )
         return context
 
+
+    def _ensure_buildozer_companions(self, buildozer_cmd: list[str]):
+        prefix = self._python_prefix_from_module_command(buildozer_cmd)
+        if not prefix:
+            return
+        # Check if cython CLI is already reachable
+        env = self._tool_env()
+        bin_dir = os.path.dirname(os.path.abspath(prefix[0]))
+        user_bin = os.path.join(os.path.expanduser("~"), ".local", "bin")
+        check_path = env.get("PATH", "")
+        for d in (bin_dir, user_bin):
+            if d not in check_path.split(os.pathsep):
+                check_path = d + os.pathsep + check_path
+        env["PATH"] = check_path
+        try:
+            probe = subprocess.run(
+                ["cython", "--version"],
+                check=False, capture_output=True, text=True, timeout=10, env=env,
+            )
+            if probe.returncode == 0:
+                return
+        except Exception:
+            pass
+        # Install cython into the same prefix
+        self._install_host_packages(prefix, ["cython"])
 
     def _check_linux_build_deps(self):
         if platform.system() != "Linux":

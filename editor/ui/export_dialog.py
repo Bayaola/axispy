@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import QTimer
 from core.logger import get_logger
-from export.builder import WebExporter, DesktopExporter, MobileExporter, ServerExporter
+from export.builder import WebExporter, DesktopExporter, MobileExporter, ServerExporter, ExportCancelled
 
 
 class ExportDialog(QDialog):
@@ -130,7 +130,11 @@ class ExportDialog(QDialog):
         self.stop_server_button.setVisible(False)
         self.close_button = QPushButton("Close")
         self.close_button.clicked.connect(self._on_close)
+        self.stop_export_button = QPushButton("Stop Export")
+        self.stop_export_button.clicked.connect(self._stop_export)
+        self.stop_export_button.setVisible(False)
         buttons.addWidget(self.export_button)
+        buttons.addWidget(self.stop_export_button)
         buttons.addWidget(self.open_folder_button)
         buttons.addWidget(self.stop_server_button)
         buttons.addWidget(self.close_button)
@@ -140,10 +144,12 @@ class ExportDialog(QDialog):
         self._export_result = None
         self._export_error = None
         self._export_done = False
+        self._export_cancelled = False
         self._last_output_path = None
         self._export_target_name = ""
         self._export_build_mode = ""
         self._export_output_path = ""
+        self._current_exporter = None
 
         self._poll_timer = QTimer(self)
         self._poll_timer.timeout.connect(self._check_export_done)
@@ -247,6 +253,7 @@ class ExportDialog(QDialog):
             exporter = exporter_type(build_mode=build_mode)
 
         self.export_button.setEnabled(False)
+        self.stop_export_button.setVisible(True)
         self.open_folder_button.setVisible(False)
         self.status_label.setText("Exporting...")
         self.progress_bar.setVisible(True)
@@ -256,6 +263,8 @@ class ExportDialog(QDialog):
         self._export_result = None
         self._export_error = None
         self._export_done = False
+        self._export_cancelled = False
+        self._current_exporter = exporter
         self._export_target_name = target_name
         self._export_build_mode = build_mode
         self._export_output_path = output_path
@@ -273,6 +282,8 @@ class ExportDialog(QDialog):
                 else:
                     context = exporter.export(self.project_path, output_path)
                 self._export_result = context
+            except ExportCancelled:
+                self._export_cancelled = True
             except Exception as error:
                 self._export_error = error
             finally:
@@ -283,12 +294,28 @@ class ExportDialog(QDialog):
 
         self._poll_timer.start(250)
 
+    def _stop_export(self):
+        if self._current_exporter is not None:
+            self._current_exporter.cancelled.set()
+        self.stop_export_button.setEnabled(False)
+        self.status_label.setText("Cancelling...")
+
     def _check_export_done(self):
         if not self._export_done:
             return
         self._poll_timer.stop()
         self.progress_bar.setRange(0, 100)
         self.export_button.setEnabled(True)
+        self.stop_export_button.setVisible(False)
+        self.stop_export_button.setEnabled(True)
+        self._current_exporter = None
+
+        if self._export_cancelled:
+            self.progress_bar.setValue(0)
+            self.progress_bar.setFormat("Export cancelled")
+            self.status_label.setText("Export cancelled by user.")
+            self._logger.info("Export cancelled by user", target=self._export_target_name)
+            return
 
         if self._export_error:
             self.progress_bar.setValue(0)
