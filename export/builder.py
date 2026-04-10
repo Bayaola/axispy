@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import platform
 import subprocess
@@ -17,6 +18,28 @@ def _to_native_path(path: str) -> str:
     if not path:
         return path
     return os.path.normpath(path.replace("\\", "/"))
+
+
+def _resolve_project_asset(stored_path: str, project_path: str) -> str:
+    """Resolve an asset path that may have been saved on a different platform."""
+    if not stored_path:
+        return ""
+    normalized = stored_path.replace("\\", "/")
+    # Direct match (native absolute or already correct relative)
+    if os.path.isfile(normalized):
+        return normalized
+    relative = os.path.join(project_path, normalized)
+    if os.path.isfile(relative):
+        return relative
+    # Strip a Windows drive-letter prefix (e.g. "D:/") that is meaningless on Linux/macOS
+    stripped = re.sub(r'^[A-Za-z]:/', '', normalized).lstrip('/')
+    # Try progressively shorter suffixes against the project directory
+    parts = stripped.split('/')
+    for i in range(len(parts)):
+        candidate = os.path.join(project_path, *parts[i:])
+        if os.path.isfile(candidate):
+            return candidate
+    return ""
 
 
 @dataclass
@@ -506,14 +529,7 @@ class Exporter:
             icon_value = str(data.get("game_icon", "")).strip()
             if not icon_value:
                 return ""
-            native_icon = _to_native_path(icon_value)
-            if os.path.isabs(native_icon):
-                icon_path = native_icon
-            else:
-                icon_path = os.path.normpath(os.path.join(project_path, native_icon))
-            if not os.path.exists(icon_path):
-                return ""
-            return icon_path
+            return _resolve_project_asset(icon_value, project_path)
         except Exception:
             return ""
 
@@ -611,23 +627,85 @@ class Exporter:
             if packages and self._install_host_packages(prefix, packages):
                 if self._probe_module_on_prefix(prefix, module_name, probe_env):
                     return [*prefix, "-m", module_name]
+        venv_prefix = self._create_tool_venv()
+        if venv_prefix and tuple(venv_prefix) not in seen:
+            if self._probe_module_on_prefix(venv_prefix, module_name, probe_env):
+                return [*venv_prefix, "-m", module_name]
+            packages = self._required_packages_for_module(module_name)
+            if packages and self._install_host_packages(venv_prefix, packages):
+                if self._probe_module_on_prefix(venv_prefix, module_name, probe_env):
+                    return [*venv_prefix, "-m", module_name]
         return None
 
     def _tool_env(self):
         env = os.environ.copy()
         if getattr(sys, "frozen", False):
-            env.pop("PYTHONHOME", None)
-            env.pop("PYTHONPATH", None)
-            env.pop("PYTHONEXECUTABLE", None)
-            env.pop("PYTHONNOUSERSITE", None)
-            env.pop("PYTHONUSERBASE", None)
+            for key in (
+                "PYTHONHOME", "PYTHONPATH", "PYTHONEXECUTABLE",
+                "PYTHONNOUSERSITE", "PYTHONUSERBASE",
+                "_MEIPASS2", "_PYI_SPLASH_IPC",
+            ):
+                env.pop(key, None)
+            meipass = getattr(sys, "_MEIPASS", None)
+            if meipass:
+                for key in ("TCL_LIBRARY", "TK_LIBRARY", "SSL_CERT_FILE", "SSL_CERT_DIR"):
+                    val = env.get(key, "")
+                    if val.startswith(meipass):
+                        env.pop(key, None)
+            if platform.system() != "Windows":
+                original_ld = env.get("LD_LIBRARY_PATH_ORIG")
+                if original_ld is not None:
+                    env["LD_LIBRARY_PATH"] = original_ld
+                else:
+                    env.pop("LD_LIBRARY_PATH", None)
         return env
+
+    def _tool_venv_dir(self):
+        if platform.system() == "Windows":
+            base = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
+        else:
+            base = os.environ.get("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".local", "share"))
+        return os.path.join(base, "axispy", "tool-venv")
+
+    def _tool_venv_prefix(self):
+        venv_dir = self._tool_venv_dir()
+        if platform.system() == "Windows":
+            py = os.path.join(venv_dir, "Scripts", "python.exe")
+        else:
+            py = os.path.join(venv_dir, "bin", "python3")
+        if os.path.isfile(py):
+            return [py]
+        return None
+
+    def _create_tool_venv(self):
+        venv_dir = self._tool_venv_dir()
+        if os.path.isdir(venv_dir):
+            return self._tool_venv_prefix()
+        env = self._tool_env()
+        for bin_name in ("python3", "python"):
+            py = shutil.which(bin_name)
+            if py is None:
+                continue
+            try:
+                result = subprocess.run(
+                    [py, "-m", "venv", venv_dir],
+                    check=False, capture_output=True, text=True,
+                    timeout=30, env=env,
+                )
+                if result.returncode == 0:
+                    return self._tool_venv_prefix()
+            except Exception:
+                continue
+        return None
 
     def _candidate_python_prefixes(self):
         candidate_prefixes: list[list[str]] = []
         host_python = os.environ.get("AXISPY_HOST_PYTHON", "").strip()
         if host_python:
             candidate_prefixes.append([host_python])
+        venv_prefix = self._tool_venv_prefix()
+        if venv_prefix:
+            candidate_prefixes.append(venv_prefix)
         if platform.system() == "Windows":
             candidate_prefixes.append(["py", "-3"])
         python_bin = shutil.which("python")
@@ -663,11 +741,14 @@ class Exporter:
     def _install_host_packages(self, prefix: list[str], packages: list[str]):
         env = self._tool_env()
         base = [*prefix, "-m", "pip", "install", "--upgrade"]
-        user_install = subprocess.run([*base, "--user", *packages], check=False, capture_output=True, text=True, env=env)
-        if user_install.returncode == 0:
-            return True
-        fallback_install = subprocess.run([*base, *packages], check=False, capture_output=True, text=True, env=env)
-        return fallback_install.returncode == 0
+        any_installed = False
+        for pkg in packages:
+            for cmd in ([*base, pkg], [*base, "--user", pkg]):
+                result = subprocess.run(cmd, check=False, capture_output=True, text=True, env=env)
+                if result.returncode == 0:
+                    any_installed = True
+                    break
+        return any_installed
 
     def _python_prefix_from_module_command(self, module_cmd: list[str]):
         if "-m" in module_cmd:
@@ -784,10 +865,8 @@ class WebExporter(Exporter):
         for key in ("logo_url", "background_image_url"):
             asset_path = designer.get(key, "").strip()
             if asset_path and not asset_path.startswith(("http://", "https://", "//")):
-                # Resolve relative to project
-                if not os.path.isabs(asset_path):
-                    asset_path = os.path.join(context.project_path, asset_path)
-                if os.path.isfile(asset_path):
+                asset_path = _resolve_project_asset(asset_path, context.project_path)
+                if asset_path:
                     dest_name = os.path.basename(asset_path)
                     try:
                         shutil.copy2(asset_path, os.path.join(context.output_path, dest_name))
@@ -1584,10 +1663,7 @@ class MobileExporter(Exporter):
             icon = str(data.get("game_icon", "")).strip()
             if not icon:
                 return ""
-            native_icon = _to_native_path(icon)
-            if os.path.isabs(native_icon):
-                return native_icon
-            return os.path.normpath(os.path.join(project_path, native_icon))
+            return _resolve_project_asset(icon, project_path)
         except Exception:
             return ""
 
@@ -1643,6 +1719,7 @@ class MobileExporter(Exporter):
             )
 
         # ── Linux / macOS: run buildozer directly ──
+        self._check_linux_build_deps()
         buildozer_cmd = self._resolve_module_command("buildozer")
         if buildozer_cmd is None:
             if getattr(sys, "frozen", False):
@@ -1719,6 +1796,34 @@ class MobileExporter(Exporter):
             log=log_path
         )
         return context
+
+
+    def _check_linux_build_deps(self):
+        if platform.system() != "Linux":
+            return
+        required_pkgs = [
+            "zlib1g-dev", "libffi-dev", "libssl-dev", "autoconf", "libtool",
+            "pkg-config", "libncurses5-dev", "libncursesw5-dev", "cmake",
+            "build-essential", "zip", "unzip", "git",
+        ]
+        missing = []
+        for pkg in required_pkgs:
+            try:
+                result = subprocess.run(
+                    ["dpkg", "-s", pkg],
+                    check=False, capture_output=True, text=True, timeout=5,
+                )
+                if result.returncode != 0:
+                    missing.append(pkg)
+            except Exception:
+                missing.append(pkg)
+        if missing:
+            raise RuntimeError(
+                "Missing system packages required by Buildozer:\n"
+                f"  {' '.join(missing)}\n\n"
+                "Install them with:\n"
+                f"  sudo apt-get install -y {' '.join(missing)}"
+            )
 
 
 class ServerExporter(Exporter):
