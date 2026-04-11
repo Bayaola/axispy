@@ -361,7 +361,7 @@ class ProjectSettingsDialog(QDialog):
         provider_form = QFormLayout(provider_group)
 
         self.ai_provider_combo = QComboBox()
-        self.ai_provider_combo.addItems(["openai", "openrouter", "local", "gemini", "anthropic"])
+        self.ai_provider_combo.addItems(["openai", "openrouter", "local", "google", "anthropic", "nvidia"])
         self.ai_provider_combo.setCurrentText(ai_data.get("provider", "openai"))
         self.ai_provider_combo.currentTextChanged.connect(self._on_ai_provider_changed)
         provider_form.addRow("Provider:", self.ai_provider_combo)
@@ -471,6 +471,25 @@ class ProjectSettingsDialog(QDialog):
         anthropic_form.addRow("", self._fetch_anthropic_btn)
 
         ai_layout.addWidget(self.ai_anthropic_group)
+
+        # NVIDIA settings group
+        self.ai_nvidia_group = QGroupBox("NVIDIA Settings (Free tier via build.nvidia.com)")
+        nvidia_form = QFormLayout(self.ai_nvidia_group)
+
+        self.ai_nvidia_key_edit = QLineEdit(ai_data.get("nvidia_api_key", ""))
+        self.ai_nvidia_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.ai_nvidia_key_edit.setPlaceholderText("nvapi-...")
+        nvidia_form.addRow("API Key:", self.ai_nvidia_key_edit)
+
+        self.ai_nvidia_model_edit = QLineEdit(ai_data.get("nvidia_model", "google/gemma-4-31b-it"))
+        self.ai_nvidia_model_edit.setPlaceholderText("google/gemma-4-31b-it, meta/llama-3.3-70b-instruct, etc.")
+        nvidia_form.addRow("Model:", self.ai_nvidia_model_edit)
+
+        self.ai_nvidia_url_edit = QLineEdit(ai_data.get("nvidia_url", "https://integrate.api.nvidia.com/v1"))
+        self.ai_nvidia_url_edit.setPlaceholderText("https://integrate.api.nvidia.com/v1")
+        nvidia_form.addRow("Base URL:", self.ai_nvidia_url_edit)
+
+        ai_layout.addWidget(self.ai_nvidia_group)
 
         # Common AI settings
         common_group = QGroupBox("Generation Settings")
@@ -1018,6 +1037,9 @@ class ProjectSettingsDialog(QDialog):
         self.config_data["ai"]["google_model"] = self.ai_google_model_edit.text().strip() or "gemini-2.5-flash"
         self.config_data["ai"]["anthropic_api_key"] = self.ai_anthropic_key_edit.text().strip()
         self.config_data["ai"]["anthropic_model"] = self.ai_anthropic_model_edit.text().strip() or "claude-3-5-sonnet-latest"
+        self.config_data["ai"]["nvidia_api_key"] = self.ai_nvidia_key_edit.text().strip()
+        self.config_data["ai"]["nvidia_model"] = self.ai_nvidia_model_edit.text().strip() or "google/gemma-4-31b-it"
+        self.config_data["ai"]["nvidia_url"] = self.ai_nvidia_url_edit.text().strip() or "https://integrate.api.nvidia.com/v1"
         self.config_data["ai"]["temperature"] = self.ai_temperature_spin.value() / 10.0
         self.config_data["ai"]["max_tokens"] = self.ai_max_tokens_spin.value()
 
@@ -1055,6 +1077,7 @@ class ProjectSettingsDialog(QDialog):
         self.ai_openrouter_group.setVisible(provider == "openrouter")
         self.ai_google_group.setVisible(provider == "google")
         self.ai_anthropic_group.setVisible(provider == "anthropic")
+        self.ai_nvidia_group.setVisible(provider == "nvidia")
 
     def _on_fetch_openrouter_models(self):
         """Fetch free models from OpenRouter and show a selection dialog."""

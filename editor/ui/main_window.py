@@ -27,6 +27,7 @@ from core.ai.providers.local_provider import LocalLLMProvider
 from core.ai.providers.openrouter_provider import OpenRouterProvider
 from core.ai.providers.google_provider import GoogleProvider
 from core.ai.providers.anthropic_provider import AnthropicProvider
+from core.ai.providers.nvidia_provider import NvidiaProvider
 from core.resources import ResourceManager
 from core.logger import get_logger
 from core.runtime_launch import LaunchProfile, RuntimeCommandBuilder
@@ -693,6 +694,12 @@ class MainWindow(QMainWindow):
             provider = AnthropicProvider(
                 api_key=ai_cfg.get("anthropic_api_key", ""),
                 model=ai_cfg.get("anthropic_model", "claude-3-5-sonnet-latest"),
+            )
+        elif provider_name == "nvidia":
+            provider = NvidiaProvider(
+                api_key=ai_cfg.get("nvidia_api_key", ""),
+                model=ai_cfg.get("nvidia_model", "google/gemma-4-31b-it"),
+                base_url=ai_cfg.get("nvidia_url", "https://integrate.api.nvidia.com/v1"),
             )
         else:
             provider = OpenAIProvider(

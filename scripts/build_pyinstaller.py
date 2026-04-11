@@ -109,6 +109,7 @@ def _collectable_packages() -> list[str]:
         "webview",
         "aiortc",
         "buildozer",
+        "qtawesome",
     ]
     available: list[str] = []
     for name in candidates:
@@ -117,7 +118,7 @@ def _collectable_packages() -> list[str]:
     return available
 
 
-def build(app_name: str, entrypoint: str, project_root: Path, icon: str | None = None):
+def build(app_name: str, entrypoint: str, project_root: Path, icon: str | None = None, version: str | None = None):
     build_root = project_root / "build" / "pyinstaller"
     dist_dir = build_root / "dist"
     work_dir = build_root / "work"
@@ -156,6 +157,30 @@ def build(app_name: str, entrypoint: str, project_root: Path, icon: str | None =
         f"{project_root / 'plugins'}{path_sep}plugins",
         "--hidden-import",
         "PyQt6.Qsci",
+        "--hidden-import",
+        "pygame.base",
+        "--hidden-import",
+        "pygame.constants",
+        "--hidden-import",
+        "pygame.rect",
+        "--hidden-import",
+        "pygame.rwobject",
+        "--hidden-import",
+        "pygame.surflock",
+        "--hidden-import",
+        "pygame.color",
+        "--hidden-import",
+        "pygame.bufferproxy",
+        "--hidden-import",
+        "pygame.math",
+        "--hidden-import",
+        "pygame.pixelcopy",
+        "--exclude-module",
+        "PyQt5",
+        "--exclude-module",
+        "PySide2",
+        "--exclude-module",
+        "PySide6",
     ]
     for package_name in _collectable_packages():
         command.extend(["--collect-all", package_name])
@@ -169,10 +194,11 @@ def build(app_name: str, entrypoint: str, project_root: Path, icon: str | None =
     built = _resolve_build_output(dist_dir, app_name)
 
     platform_tag = _platform_tag()
+    version_suffix = f"-{version}" if version else ""
     if platform.system().lower() == "windows":
-        archive = release_dir / f"{app_name}-{platform_tag}.zip"
+        archive = release_dir / f"{app_name}{version_suffix}-{platform_tag}.zip"
     else:
-        archive = release_dir / f"{app_name}-{platform_tag}.tar.gz"
+        archive = release_dir / f"{app_name}{version_suffix}-{platform_tag}.tar.gz"
 
     archive_source = _resolve_archive_source(built)
     print("packaging release archive in progress...")
@@ -185,9 +211,10 @@ def main():
     parser.add_argument("--name", default="AxisPyEngine")
     parser.add_argument("--entrypoint", default="main.py")
     parser.add_argument("--icon", default=None)
+    parser.add_argument("--version", default=None)
     args = parser.parse_args()
     project_root = Path(__file__).resolve().parents[1]
-    build(args.name, args.entrypoint, project_root, icon=args.icon)
+    build(args.name, args.entrypoint, project_root, icon=args.icon, version=args.version)
 
 
 if __name__ == "__main__":

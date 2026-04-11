@@ -77,16 +77,23 @@ def main():
         # Set resource base path
         ResourceManager.set_base_path(project_path)
         
-        main_window = MainWindow()
-        if engine_icon_path:
-            main_window.setWindowIcon(QIcon(engine_icon_path))
-        main_window.project_path = project_path
-        main_window.asset_manager_dock.set_project_path(project_path)
-        main_window.setWindowTitle(f"AxisPy Engine - {project_path}")
-        main_window.load_project_settings()
-        main_window.load_last_opened_scene()
-        main_window.show()
-        windows.append(main_window)
+        try:
+            main_window = MainWindow()
+            if engine_icon_path:
+                main_window.setWindowIcon(QIcon(engine_icon_path))
+            main_window.project_path = project_path
+            main_window.asset_manager_dock.set_project_path(project_path)
+            main_window.setWindowTitle(f"AxisPy Engine - {project_path}")
+            main_window.load_project_settings()
+            main_window.load_last_opened_scene()
+            main_window.show()
+            windows.append(main_window)
+        except Exception as e:
+            import traceback
+            from PyQt6.QtWidgets import QMessageBox
+            QMessageBox.critical(None, "AxisPy Engine - Launch Error",
+                                 f"Failed to open the editor:\n\n{e}\n\n{traceback.format_exc()}")
+            sys.exit(1)
     
     hub = ProjectHub()
     if engine_icon_path:

@@ -12,3 +12,4 @@ pywebview>=6.1
 aiortc>=1.14.0
 buildozer>=1.5.0
 qtawesome>=1.4.1
+cython>=3.2.4

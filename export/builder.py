@@ -5,10 +5,12 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import platform
 import subprocess
 import sys
+import threading
 from core.logger import get_logger
 
 
@@ -19,6 +21,32 @@ def _to_native_path(path: str) -> str:
     return os.path.normpath(path.replace("\\", "/"))
 
 
+def _resolve_project_asset(stored_path: str, project_path: str) -> str:
+    """Resolve an asset path that may have been saved on a different platform."""
+    if not stored_path:
+        return ""
+    normalized = stored_path.replace("\\", "/")
+    # Direct match (native absolute or already correct relative)
+    if os.path.isfile(normalized):
+        return normalized
+    relative = os.path.join(project_path, normalized)
+    if os.path.isfile(relative):
+        return relative
+    # Strip a Windows drive-letter prefix (e.g. "D:/") that is meaningless on Linux/macOS
+    stripped = re.sub(r'^[A-Za-z]:/', '', normalized).lstrip('/')
+    # Try progressively shorter suffixes against the project directory
+    parts = stripped.split('/')
+    for i in range(len(parts)):
+        candidate = os.path.join(project_path, *parts[i:])
+        if os.path.isfile(candidate):
+            return candidate
+    return ""
+
+
+class ExportCancelled(Exception):
+    """Raised when the user cancels an in-progress export."""
+
+
 @dataclass
 class BuildContext:
     project_path: str
@@ -27,6 +55,7 @@ class BuildContext:
     build_mode: str = "release"
     logger: any = None
     metadata: dict = field(default_factory=dict)
+    cancelled: threading.Event = field(default_factory=threading.Event)
 
 
 class WebTemplatePart:
@@ -417,9 +446,13 @@ class BuildGraph:
     def _run_node(self, node_name: str, context: BuildContext, executed: set[str]):
         if node_name in executed:
             return
+        if context.cancelled.is_set():
+            raise ExportCancelled("Export cancelled by user")
         node = self.nodes[node_name]
         for dependency in node.dependencies:
             self._run_node(dependency, context, executed)
+        if context.cancelled.is_set():
+            raise ExportCancelled("Export cancelled by user")
         context.logger.info("Build step start", platform=context.platform, step=node.name)
         node.action(context)
         context.logger.info("Build step done", platform=context.platform, step=node.name)
@@ -433,6 +466,7 @@ class Exporter:
         self.build_mode = build_mode
         self.logger = get_logger(f"export.{self.platform}")
         self.graph = self._build_graph()
+        self.cancelled = threading.Event()
 
     def _build_context(self, project_path: str, output_path: str):
         normalized_output = os.path.abspath(os.path.normpath(output_path))
@@ -444,7 +478,8 @@ class Exporter:
             output_path=os.path.abspath(os.path.normpath(platform_output)),
             platform=self.platform,
             build_mode=self.build_mode,
-            logger=self.logger
+            logger=self.logger,
+            cancelled=self.cancelled
         )
 
     def _build_graph(self):
@@ -506,14 +541,7 @@ class Exporter:
             icon_value = str(data.get("game_icon", "")).strip()
             if not icon_value:
                 return ""
-            native_icon = _to_native_path(icon_value)
-            if os.path.isabs(native_icon):
-                icon_path = native_icon
-            else:
-                icon_path = os.path.normpath(os.path.join(project_path, native_icon))
-            if not os.path.exists(icon_path):
-                return ""
-            return icon_path
+            return _resolve_project_asset(icon_value, project_path)
         except Exception:
             return ""
 
@@ -611,23 +639,85 @@ class Exporter:
             if packages and self._install_host_packages(prefix, packages):
                 if self._probe_module_on_prefix(prefix, module_name, probe_env):
                     return [*prefix, "-m", module_name]
+        venv_prefix = self._create_tool_venv()
+        if venv_prefix and tuple(venv_prefix) not in seen:
+            if self._probe_module_on_prefix(venv_prefix, module_name, probe_env):
+                return [*venv_prefix, "-m", module_name]
+            packages = self._required_packages_for_module(module_name)
+            if packages and self._install_host_packages(venv_prefix, packages):
+                if self._probe_module_on_prefix(venv_prefix, module_name, probe_env):
+                    return [*venv_prefix, "-m", module_name]
         return None
 
     def _tool_env(self):
         env = os.environ.copy()
         if getattr(sys, "frozen", False):
-            env.pop("PYTHONHOME", None)
-            env.pop("PYTHONPATH", None)
-            env.pop("PYTHONEXECUTABLE", None)
-            env.pop("PYTHONNOUSERSITE", None)
-            env.pop("PYTHONUSERBASE", None)
+            for key in (
+                "PYTHONHOME", "PYTHONPATH", "PYTHONEXECUTABLE",
+                "PYTHONNOUSERSITE", "PYTHONUSERBASE",
+                "_MEIPASS2", "_PYI_SPLASH_IPC",
+            ):
+                env.pop(key, None)
+            meipass = getattr(sys, "_MEIPASS", None)
+            if meipass:
+                for key in ("TCL_LIBRARY", "TK_LIBRARY", "SSL_CERT_FILE", "SSL_CERT_DIR"):
+                    val = env.get(key, "")
+                    if val.startswith(meipass):
+                        env.pop(key, None)
+            if platform.system() != "Windows":
+                original_ld = env.get("LD_LIBRARY_PATH_ORIG")
+                if original_ld is not None:
+                    env["LD_LIBRARY_PATH"] = original_ld
+                else:
+                    env.pop("LD_LIBRARY_PATH", None)
         return env
+
+    def _tool_venv_dir(self):
+        if platform.system() == "Windows":
+            base = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
+        else:
+            base = os.environ.get("XDG_DATA_HOME", os.path.join(os.path.expanduser("~"), ".local", "share"))
+        return os.path.join(base, "axispy", "tool-venv")
+
+    def _tool_venv_prefix(self):
+        venv_dir = self._tool_venv_dir()
+        if platform.system() == "Windows":
+            py = os.path.join(venv_dir, "Scripts", "python.exe")
+        else:
+            py = os.path.join(venv_dir, "bin", "python3")
+        if os.path.isfile(py):
+            return [py]
+        return None
+
+    def _create_tool_venv(self):
+        venv_dir = self._tool_venv_dir()
+        if os.path.isdir(venv_dir):
+            return self._tool_venv_prefix()
+        env = self._tool_env()
+        for bin_name in ("python3", "python"):
+            py = shutil.which(bin_name)
+            if py is None:
+                continue
+            try:
+                result = subprocess.run(
+                    [py, "-m", "venv", venv_dir],
+                    check=False, capture_output=True, text=True,
+                    timeout=30, env=env,
+                )
+                if result.returncode == 0:
+                    return self._tool_venv_prefix()
+            except Exception:
+                continue
+        return None
 
     def _candidate_python_prefixes(self):
         candidate_prefixes: list[list[str]] = []
         host_python = os.environ.get("AXISPY_HOST_PYTHON", "").strip()
         if host_python:
             candidate_prefixes.append([host_python])
+        venv_prefix = self._tool_venv_prefix()
+        if venv_prefix:
+            candidate_prefixes.append(venv_prefix)
         if platform.system() == "Windows":
             candidate_prefixes.append(["py", "-3"])
         python_bin = shutil.which("python")
@@ -663,11 +753,14 @@ class Exporter:
     def _install_host_packages(self, prefix: list[str], packages: list[str]):
         env = self._tool_env()
         base = [*prefix, "-m", "pip", "install", "--upgrade"]
-        user_install = subprocess.run([*base, "--user", *packages], check=False, capture_output=True, text=True, env=env)
-        if user_install.returncode == 0:
-            return True
-        fallback_install = subprocess.run([*base, *packages], check=False, capture_output=True, text=True, env=env)
-        return fallback_install.returncode == 0
+        any_installed = False
+        for pkg in packages:
+            for cmd in ([*base, pkg], [*base, "--user", pkg]):
+                result = subprocess.run(cmd, check=False, capture_output=True, text=True, env=env)
+                if result.returncode == 0:
+                    any_installed = True
+                    break
+        return any_installed
 
     def _python_prefix_from_module_command(self, module_cmd: list[str]):
         if "-m" in module_cmd:
@@ -784,10 +877,8 @@ class WebExporter(Exporter):
         for key in ("logo_url", "background_image_url"):
             asset_path = designer.get(key, "").strip()
             if asset_path and not asset_path.startswith(("http://", "https://", "//")):
-                # Resolve relative to project
-                if not os.path.isabs(asset_path):
-                    asset_path = os.path.join(context.project_path, asset_path)
-                if os.path.isfile(asset_path):
+                asset_path = _resolve_project_asset(asset_path, context.project_path)
+                if asset_path:
                     dest_name = os.path.basename(asset_path)
                     try:
                         shutil.copy2(asset_path, os.path.join(context.output_path, dest_name))
@@ -1031,6 +1122,19 @@ class DesktopExporter(Exporter):
                 f"PyInstaller is not installed for interpreter '{sys.executable}'. "
                 "Install it with: pip install pyinstaller"
             )
+        # Ensure pygame is available in the host Python so --collect-all can find it
+        prefix = self._python_prefix_from_module_command(pyinstaller_cmd)
+        probe_env = self._tool_env()
+        if not self._probe_module_on_prefix(prefix, "pygame", probe_env):
+            self.logger.info("pygame not found in host Python, attempting install", prefix=prefix)
+            self._install_host_packages(prefix, ["pygame"])
+            if not self._probe_module_on_prefix(prefix, "pygame", probe_env):
+                self.logger.warning(
+                    "pygame could not be installed in the host Python. "
+                    "The built executable may fail to run. "
+                    "Install pygame manually: pip install pygame"
+                )
+
         launcher_path = context.metadata.get("desktop_launcher_path")
         if not launcher_path or not os.path.exists(launcher_path):
             raise RuntimeError("Desktop launcher was not generated.")
@@ -1063,8 +1167,32 @@ class DesktopExporter(Exporter):
             self._engine_root(),
             "--hidden-import",
             "pygame",
+            "--hidden-import",
+            "pygame.base",
+            "--hidden-import",
+            "pygame.constants",
+            "--hidden-import",
+            "pygame.rect",
+            "--hidden-import",
+            "pygame.rwobject",
+            "--hidden-import",
+            "pygame.surflock",
+            "--hidden-import",
+            "pygame.color",
+            "--hidden-import",
+            "pygame.bufferproxy",
+            "--hidden-import",
+            "pygame.math",
+            "--hidden-import",
+            "pygame.pixelcopy",
             "--collect-all",
-            "pygame"
+            "pygame",
+            "--exclude-module",
+            "PyQt5",
+            "--exclude-module",
+            "PySide2",
+            "--exclude-module",
+            "PySide6",
         ]
         # Platform-specific PyInstaller args
         if self.target_os == "macos":
@@ -1414,7 +1542,7 @@ class MobileExporter(Exporter):
         ndk_path = android_cfg.get("ndk_path", "")
 
         # Build requirements (default engine dependencies always included)
-        requirements = "python3,kivy,pygame,websockets,pywebview,aiortc"
+        requirements = "python3,kivy,pygame==2.5.2,websockets,pywebview,aiortc"
         if python_deps:
             requirements += "," + python_deps
 
@@ -1578,10 +1706,7 @@ class MobileExporter(Exporter):
             icon = str(data.get("game_icon", "")).strip()
             if not icon:
                 return ""
-            native_icon = _to_native_path(icon)
-            if os.path.isabs(native_icon):
-                return native_icon
-            return os.path.normpath(os.path.join(project_path, native_icon))
+            return _resolve_project_asset(icon, project_path)
         except Exception:
             return ""
 
@@ -1603,12 +1728,17 @@ class MobileExporter(Exporter):
                 f.write("#     build-essential git zip unzip openjdk-17-jdk \\\n")
                 f.write("#     autoconf libtool pkg-config zlib1g-dev \\\n")
                 f.write("#     libncurses5-dev libncursesw5-dev cmake \\\n")
-                f.write("#     libffi-dev libssl-dev python3-pip\n")
-                f.write("#   pip3 install --user buildozer cython\n")
+                f.write("#     libffi-dev libssl-dev python3-pip python3-venv\n")
+                f.write("#   python3 -m venv ~/.buildozer_venv\n")
+                f.write("#   ~/.buildozer_venv/bin/pip install buildozer cython\n")
                 f.write("#\n")
                 f.write("set -e\n")
                 f.write('SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"\n')
                 f.write('cd "$SCRIPT_DIR"\n')
+                f.write("# Use virtual environment if it exists, otherwise use system buildozer\n")
+                f.write('if [ -d "$HOME/.buildozer_venv" ]; then\n')
+                f.write('    source "$HOME/.buildozer_venv/bin/activate"\n')
+                f.write('fi\n')
                 f.write(f"buildozer android {build_action}\n")
 
             context.metadata["mobile_wsl_script"] = wsl_script_path
@@ -1637,6 +1767,7 @@ class MobileExporter(Exporter):
             )
 
         # ── Linux / macOS: run buildozer directly ──
+        self._check_linux_build_deps()
         buildozer_cmd = self._resolve_module_command("buildozer")
         if buildozer_cmd is None:
             if getattr(sys, "frozen", False):
@@ -1653,6 +1784,9 @@ class MobileExporter(Exporter):
                 "libncursesw5-dev cmake libffi-dev libssl-dev"
             )
 
+        # Ensure cython is installed in the same environment as buildozer
+        self._ensure_buildozer_companions(buildozer_cmd)
+
         log_path = os.path.join(context.output_path, f"buildozer_{build_action}.log")
         self.logger.info(
             "Starting Buildozer",
@@ -1661,24 +1795,78 @@ class MobileExporter(Exporter):
             cwd=context.output_path
         )
 
-        result = subprocess.run(
+        build_env = self._tool_env()
+        # Ensure the Python prefix's bin dir and user scripts dir are on
+        # PATH so buildozer can find pip-installed CLI tools like cython.
+        extra_dirs = []
+        prefix = self._python_prefix_from_module_command(buildozer_cmd)
+        if prefix:
+            extra_dirs.append(os.path.dirname(os.path.abspath(prefix[0])))
+        user_bin = os.path.join(os.path.expanduser("~"), ".local", "bin")
+        if os.path.isdir(user_bin):
+            extra_dirs.append(user_bin)
+        current_path = build_env.get("PATH", "")
+        path_parts = current_path.split(os.pathsep)
+        for d in extra_dirs:
+            if d not in path_parts:
+                current_path = d + os.pathsep + current_path
+        build_env["PATH"] = current_path
+
+        _ansi_re = re.compile(r'\x1b\[[0-9;]*m')
+
+        proc = subprocess.Popen(
             [*buildozer_cmd, "android", build_action],
             cwd=context.output_path,
-            check=False,
-            capture_output=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            env=self._tool_env()
+            env=build_env,
         )
 
-        combined = ""
-        if result.stdout:
-            combined += result.stdout
-        if result.stderr:
+        # Feed automatic "yes" responses to accept Android SDK licenses,
+        # then close stdin so the process never blocks waiting for input.
+        try:
+            assert proc.stdin is not None
+            proc.stdin.write(("y\n") * 50)
+            proc.stdin.flush()
+            proc.stdin.close()
+        except (BrokenPipeError, OSError):
+            pass
+
+        stdout_lines: list[str] = []
+        stderr_lines: list[str] = []
+
+        def _drain_stderr():
+            assert proc.stderr is not None
+            for line in proc.stderr:
+                stderr_lines.append(line)
+                stripped = _ansi_re.sub('', line).strip()
+                if stripped:
+                    self.logger.info(stripped)
+
+        stderr_thread = threading.Thread(target=_drain_stderr, daemon=True)
+        stderr_thread.start()
+
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            stdout_lines.append(line)
+            stripped = _ansi_re.sub('', line).strip()
+            if stripped:
+                self.logger.info(stripped)
+
+        proc.wait()
+        stderr_thread.join(timeout=5)
+
+        combined = "".join(stdout_lines)
+        if stderr_lines:
             if combined:
                 combined += "\n"
-            combined += result.stderr
+            combined += "".join(stderr_lines)
         with open(log_path, "w", encoding="utf-8") as f:
             f.write(combined)
+
+        result = proc
 
         if result.returncode != 0:
             tail_lines = [l for l in combined.splitlines() if l.strip()][-20:]
@@ -1713,6 +1901,59 @@ class MobileExporter(Exporter):
             log=log_path
         )
         return context
+
+
+    def _ensure_buildozer_companions(self, buildozer_cmd: list[str]):
+        prefix = self._python_prefix_from_module_command(buildozer_cmd)
+        if not prefix:
+            return
+        # Check if cython CLI is already reachable
+        env = self._tool_env()
+        bin_dir = os.path.dirname(os.path.abspath(prefix[0]))
+        user_bin = os.path.join(os.path.expanduser("~"), ".local", "bin")
+        check_path = env.get("PATH", "")
+        for d in (bin_dir, user_bin):
+            if d not in check_path.split(os.pathsep):
+                check_path = d + os.pathsep + check_path
+        env["PATH"] = check_path
+        try:
+            probe = subprocess.run(
+                ["cython", "--version"],
+                check=False, capture_output=True, text=True, timeout=10, env=env,
+            )
+            if probe.returncode == 0:
+                return
+        except Exception:
+            pass
+        # Install cython into the same prefix
+        self._install_host_packages(prefix, ["cython"])
+
+    def _check_linux_build_deps(self):
+        if platform.system() != "Linux":
+            return
+        required_pkgs = [
+            "zlib1g-dev", "libffi-dev", "libssl-dev", "autoconf", "libtool",
+            "pkg-config", "libncurses5-dev", "libncursesw5-dev", "cmake",
+            "build-essential", "zip", "unzip", "git",
+        ]
+        missing = []
+        for pkg in required_pkgs:
+            try:
+                result = subprocess.run(
+                    ["dpkg", "-s", pkg],
+                    check=False, capture_output=True, text=True, timeout=5,
+                )
+                if result.returncode != 0:
+                    missing.append(pkg)
+            except Exception:
+                missing.append(pkg)
+        if missing:
+            raise RuntimeError(
+                "Missing system packages required by Buildozer:\n"
+                f"  {' '.join(missing)}\n\n"
+                "Install them with:\n"
+                f"  sudo apt-get install -y {' '.join(missing)}"
+            )
 
 
 class ServerExporter(Exporter):
@@ -1823,6 +2064,13 @@ class ServerExporter(Exporter):
                 f"PyInstaller is not installed for interpreter '{sys.executable}'. "
                 "Install it with: pip install pyinstaller"
             )
+        # Ensure pygame is available in the host Python so --collect-all can find it
+        prefix = self._python_prefix_from_module_command(pyinstaller_cmd)
+        probe_env = self._tool_env()
+        if not self._probe_module_on_prefix(prefix, "pygame", probe_env):
+            self.logger.info("pygame not found in host Python, attempting install", prefix=prefix)
+            self._install_host_packages(prefix, ["pygame"])
+
         launcher_path = context.metadata.get("server_launcher_path")
         if not launcher_path or not os.path.exists(launcher_path):
             raise RuntimeError("Server launcher was not generated.")
@@ -1857,6 +2105,24 @@ class ServerExporter(Exporter):
             self._engine_root(),
             "--hidden-import",
             "pygame",
+            "--hidden-import",
+            "pygame.base",
+            "--hidden-import",
+            "pygame.constants",
+            "--hidden-import",
+            "pygame.rect",
+            "--hidden-import",
+            "pygame.rwobject",
+            "--hidden-import",
+            "pygame.surflock",
+            "--hidden-import",
+            "pygame.color",
+            "--hidden-import",
+            "pygame.bufferproxy",
+            "--hidden-import",
+            "pygame.math",
+            "--hidden-import",
+            "pygame.pixelcopy",
             "--collect-all",
             "pygame",
             "--hidden-import",
