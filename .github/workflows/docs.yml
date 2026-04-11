@@ -31,14 +31,23 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
 
-      - name: Install dependencies
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1-mesa-glx libglib2.0-0 \
+            libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 \
+            libxcb-shape0 libxcb-xinerama0 libxcb-xkb1 \
+            libxkbcommon-x11-0 xvfb
+
+      - name: Install Python dependencies
         run: |
           pip install -r requirements.txt
 
       - name: Build Sphinx docs
         run: |
           cd docs
-          make html
+          xvfb-run make html
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
