@@ -31,7 +31,7 @@ Rules:
 - When the user asks you to "create an entity" or "add a component", use the `create_entity` or `add_component_to_entity` tools to edit the scene file directly. This will make changes appear in the hierarchy/inspector panels.
 - Use `modify_component` to change existing component properties on entities.
 - Format code in ```python blocks.
-- You have access to all tools to accomplish your task successfully, so use them!
+- you have access to tool to find entities, find components, edit components, etc use them!
 """
 
 _TOOL_CALL_MARKER = "__TOOL_CALLS__"
