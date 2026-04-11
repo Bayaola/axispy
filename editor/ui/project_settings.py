@@ -361,7 +361,7 @@ class ProjectSettingsDialog(QDialog):
         provider_form = QFormLayout(provider_group)
 
         self.ai_provider_combo = QComboBox()
-        self.ai_provider_combo.addItems(["openai", "openrouter", "local", "gemini", "anthropic", "nvidia"])
+        self.ai_provider_combo.addItems(["openai", "openrouter", "local", "google", "anthropic", "nvidia"])
         self.ai_provider_combo.setCurrentText(ai_data.get("provider", "openai"))
         self.ai_provider_combo.currentTextChanged.connect(self._on_ai_provider_changed)
         provider_form.addRow("Provider:", self.ai_provider_combo)
