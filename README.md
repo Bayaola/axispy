@@ -39,3 +39,20 @@ AxisPy is especially suited for:
 - Developers exploring game ideas without heavy engine overhead
 
 *AxisPy is not about replacing existing AAA engines, it's about empowering Python developers to create games in an environment they already love.*
+
+## Screenshots
+
+<p align="center">
+  <img src="docs/_static/img/readme/001.png" alt="Scene Editor – Breakout game scene">
+  <br><em>Scene Editor with a Breakout game scene</em>
+</p>
+
+<p align="center">
+  <img src="docs/_static/img/readme/002.png" alt="AI Assistant panel – adding light to the ball">
+  <br><em>AI Assistant panel showing AI Assistant adding a light component to the ball</em>
+</p>
+
+<p align="center">
+  <img src="docs/_static/img/readme/003.png" alt="Inspector panel">
+  <br><em>Inspector panel</em>
+</p>
