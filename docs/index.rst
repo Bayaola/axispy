@@ -24,6 +24,12 @@ Welcome to the AxisPy Engine documentation!
    source/plugins/modules
    source/scripts/modules
 
+.. toctree::
+   :maxdepth: 2
+   :caption: Contributing:
+
+   source/contributing
+
 Indices and tables
 ==================
 
